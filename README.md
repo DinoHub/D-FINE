@@ -1,3 +1,49 @@
+# D-FINE for DINOHUB
+
+## Adapted/Forked from [Peterande's repo](https://github.com/Peterande/D-FINE)
+
+Last "merge" date: 11th Dec 2024
+
+## Changes from original repo
+
+- Restructured the project to align with other DinoHub repositories.
+- Added functionality to save `predictions.json`.
+
+## Setting up Using Docker Compose (Recommended)
+
+Using Docker Compose is recommended for setting up the environment. Follow these steps:
+
+1. **Clone the Repository**:
+    Clone the D-FINE repository.
+
+    ```bash
+    git clone https://github.com/DinoHub/D-FINE
+    ```
+
+1. **Edit Configurations**:
+
+    Edit configurations in `build/docker-compose.yaml` and `build/.env` accordingly. Best practice would be to have a `/data` folder for data (images/videos/etc.) and a `/models` folder for model related items, e.g., weights or cfgs.
+
+1. **Build and Run Docker Container**:
+
+    Build the Docker container and start the Docker Compose:
+
+    ```bash
+    cd build
+    docker-compose up
+    ```
+
+1. **Execute Scripts**:
+
+    Once the container is built, open another terminal and enter the container to execute your scripts. Replace `dfine` with your image name if you've changed it.
+
+    ```bash
+    cd build
+    docker-compose exec dfine bash
+    ```
+
+# Official D-FINE
+
 <!--# [D-FINE: Redefine Regression Task of DETRs as Fine-grained Distribution Refinement](https://arxiv.org/abs/xxxxxx) -->
 
 English | [简体中文](README_cn.md) | [日本語](README_ja.md) | [English Blog](src/zoo/dfine/blog.md) | [中文博客](src/zoo/dfine/blog_cn.md)
