@@ -6,9 +6,10 @@ Modified from DETR (https://github.com/facebookresearch/detr/blob/main/engine.py
 Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 """
 
-
+import os
 import sys
 import math
+import json
 from typing import Iterable
 
 import torch
@@ -118,7 +119,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device):
+def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device, save_txt=False,output_dir='',ann_file=''):
     model.eval()
     criterion.eval()
     coco_evaluator.cleanup()
@@ -131,17 +132,27 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
     iou_types = coco_evaluator.iou_types
     # coco_evaluator = CocoEvaluator(base_ds, iou_types)
     # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+   
+    if save_txt:
+        print(f'YOLO predictions are saved at {output_dir}')
+        os.makedirs(output_dir, exist_ok=True) 
+        with open(ann_file, 'r') as f:
+            coco_data = json.load(f)
+        image_id_to_name = {image['id']: image['file_name'] for image in coco_data['images']}
+       
+   
 
     for samples, targets in metric_logger.log_every(data_loader, 10, header):
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
+        
         outputs = model(samples)
         # with torch.autocast(device_type=str(device)):
         #     outputs = model(samples)
 
         # TODO (lyuwenyu), fix dataset converted using `convert_to_coco_api`?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+       
         # orig_target_sizes = torch.tensor([[samples.shape[-1], samples.shape[-2]]], device=samples.device)
 
         results = postprocessor(outputs, orig_target_sizes)
@@ -151,6 +162,46 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         #     results = postprocessor['segm'](results, outputs, orig_target_sizes, target_sizes)
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        if save_txt:
+            for image_id, predictions in res.items():
+                # # Get the image name from the mapping
+                # image_name = image_id_to_name[image_id]
+                # image_base_name = os.path.splitext(image_name)[0]  # Remove file extension
+
+                yolo_annotations = []
+                xyxy_annotations = []
+                boxes = predictions['boxes']
+                labels = predictions['labels']
+                scores = predictions['scores']
+
+                for box, label, score in zip(boxes, labels, scores):
+                    # Extract the bounding box coordinates (in xyxy format)
+                    x_1, y_1, x_2, y_2 = box
+
+                    # Convert to YOLO format (center-based and normalized)
+                    bbox_width = x_2 - x_1
+                    bbox_height = y_2 - y_1
+                    x_center = x_1 + bbox_width / 2
+                    y_center = y_1 + bbox_height / 2
+
+                    # Normalize the coordinates based on the image size
+                    x_center /= orig_target_sizes[0][0].item()  # Normalize by image width
+                    y_center /= orig_target_sizes[0][1].item()  # Normalize by image height
+                    bbox_width /= orig_target_sizes[0][0].item()
+                    bbox_height /= orig_target_sizes[0][1].item()
+
+                    # Add to YOLO annotations (label starts from 0 for YOLO format)
+                    if score > 0.3:
+                        yolo_annotations.append(f"{label.item()} {x_center} {y_center} {bbox_width} {bbox_height}")
+                        # xyxy_annotations.append(f"{label.item()} {x_1} {y_1} {x_2} {y_2}")
+
+                # Save YOLO annotations to a text file
+                image_name = os.path.splitext(image_id_to_name.get(image_id, 'Unknown'))[0]
+                with open(os.path.join(output_dir, f"{image_name}.txt"), "w") as f:
+                    f.write("\n".join(yolo_annotations))
+                # with open(os.path.join(output_dir, f"{image_name}_xyxy.txt"), "w") as f:
+                #     f.write("\n".join(xyxy_annotations))
+            
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 
