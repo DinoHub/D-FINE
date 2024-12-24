@@ -49,7 +49,7 @@ def main(args, ) -> None:
     solver = TASKS[cfg.yaml_cfg['task']](cfg)
 
     if args.test_only:
-        solver.val()
+        solver.val(save_txt=args.save_txt, save_json=args.save_json, conf_threshold=args.test_conf_threshold)
     else:
         solver.fit()
 
@@ -70,6 +70,9 @@ if __name__ == '__main__':
     parser.add_argument('--output-dir', type=str, help='output directoy')
     parser.add_argument('--summary-dir', type=str, help='tensorboard summry')
     parser.add_argument('--test-only', action='store_true', default=False,)
+    parser.add_argument('--save-txt', action='store_true', default=False,)
+    parser.add_argument('--save-json', action='store_true', default=False,)
+    parser.add_argument('--test-conf-threshold', type=float, default=0.65)
 
     # priority 1
     parser.add_argument('-u', '--update', nargs='+', help='update yaml config')

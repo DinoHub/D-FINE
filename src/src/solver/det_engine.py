@@ -119,7 +119,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device, save_txt=False,output_dir='',ann_file=''):
+def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device, save_txt=False, save_json=False, conf_threshold=0.65, output_dir='', ann_file=''):
     model.eval()
     criterion.eval()
     coco_evaluator.cleanup()
@@ -134,13 +134,12 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
     # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
    
     if save_txt:
-        print(f'YOLO predictions are saved at {output_dir}')
-        os.makedirs(output_dir, exist_ok=True) 
+        yolo_output_dir = os.path.join(output_dir, "yolo_predictions")
+        print(f'YOLO predictions are saved at {yolo_output_dir}')
+        os.makedirs(yolo_output_dir, exist_ok=True) 
         with open(ann_file, 'r') as f:
             coco_data = json.load(f)
         image_id_to_name = {image['id']: image['file_name'] for image in coco_data['images']}
-       
-   
 
     for samples, targets in metric_logger.log_every(data_loader, 10, header):
         samples = samples.to(device)
@@ -162,7 +161,8 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         #     results = postprocessor['segm'](results, outputs, orig_target_sizes, target_sizes)
 
         res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-        if save_txt:
+        if save_txt or save_json:
+            xywh_annotations = []
             for image_id, predictions in res.items():
                 # # Get the image name from the mapping
                 # image_name = image_id_to_name[image_id]
@@ -175,32 +175,45 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
                 scores = predictions['scores']
 
                 for box, label, score in zip(boxes, labels, scores):
-                    # Extract the bounding box coordinates (in xyxy format)
-                    x_1, y_1, x_2, y_2 = box
+                    if score >= conf_threshold:
+                        # Extract the bounding box coordinates (in xyxy format)
+                        x_1, y_1, x_2, y_2 = box
 
-                    # Convert to YOLO format (center-based and normalized)
-                    bbox_width = x_2 - x_1
-                    bbox_height = y_2 - y_1
-                    x_center = x_1 + bbox_width / 2
-                    y_center = y_1 + bbox_height / 2
+                        # Convert to YOLO format (center-based and normalized)
+                        bbox_width = x_2 - x_1
+                        bbox_height = y_2 - y_1
+                        x_center = x_1 + bbox_width / 2
+                        y_center = y_1 + bbox_height / 2
 
-                    # Normalize the coordinates based on the image size
-                    x_center /= orig_target_sizes[0][0].item()  # Normalize by image width
-                    y_center /= orig_target_sizes[0][1].item()  # Normalize by image height
-                    bbox_width /= orig_target_sizes[0][0].item()
-                    bbox_height /= orig_target_sizes[0][1].item()
+                        # Normalize the coordinates based on the image size
+                        x_center_norm = x_center / orig_target_sizes[0][0].item()  # Normalize by image width
+                        y_center_norm = y_center / orig_target_sizes[0][1].item()  # Normalize by image height
+                        bbox_width_norm = bbox_width / orig_target_sizes[0][0].item()
+                        bbox_height_norm = bbox_height / orig_target_sizes[0][1].item()
 
-                    # Add to YOLO annotations (label starts from 0 for YOLO format)
-                    if score > 0.3:
-                        yolo_annotations.append(f"{label.item()} {x_center} {y_center} {bbox_width} {bbox_height}")
+                        # Add to YOLO annotations (label starts from 0 for YOLO format)
+                        if save_txt: 
+                            yolo_annotations.append(f"{label.item()} {x_center_norm} {y_center_norm} {bbox_width_norm} {bbox_height_norm}")
+                        # Check if starts from 0 or 1. It should start from 1.
+                        if save_json: 
+                            xywh_annotations.append({
+                                "image_id": image_id,
+                                "category_id": label.item(),
+                                "bbox": [x_center.item(), y_center.item(), bbox_width.item(), bbox_height.item()],
+                                "score": score.item()
+                            })
                         # xyxy_annotations.append(f"{label.item()} {x_1} {y_1} {x_2} {y_2}")
 
                 # Save YOLO annotations to a text file
-                image_name = os.path.splitext(image_id_to_name.get(image_id, 'Unknown'))[0]
-                with open(os.path.join(output_dir, f"{image_name}.txt"), "w") as f:
-                    f.write("\n".join(yolo_annotations))
-                # with open(os.path.join(output_dir, f"{image_name}_xyxy.txt"), "w") as f:
-                #     f.write("\n".join(xyxy_annotations))
+                if save_txt:
+                    image_name = os.path.splitext(image_id_to_name.get(image_id, 'Unknown'))[0]
+                    with open(os.path.join(yolo_output_dir, f"{image_name}.txt"), "w") as f:
+                        f.write("\n".join(yolo_annotations))
+                    # with open(os.path.join(output_dir, f"{image_name}_xyxy.txt"), "w") as f:
+                    #     f.write("\n".join(xyxy_annotations))
+            if save_json:
+                with open(os.path.join(output_dir, "predictions.json"), "w") as f:
+                    json.dump(xywh_annotations, f)
             
         if coco_evaluator is not None:
             coco_evaluator.update(res)
